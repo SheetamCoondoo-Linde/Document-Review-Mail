@@ -296,6 +296,16 @@ if breached_df.empty:
 
     print("\nNo breached reviews found.")
 
+    upcoming_days_diff = (
+        doc_df["Review Date"]
+        - today
+    ).dt.days
+
+    upcoming_df = doc_df[
+        doc_df["Review Date"].notna()
+        &
+        (
+            upcoming_days_diff >= 0
     upcoming_df = doc_df[
         pending_mask
         &
