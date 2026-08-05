@@ -297,7 +297,11 @@ if breached_df.empty:
     print("\nNo breached reviews found.")
 
     upcoming_df = doc_df[
-        days_diff > 4
+        pending_mask
+        &
+        (
+            days_diff > 4
+        )
     ].copy()
 
     upcoming_df = (
