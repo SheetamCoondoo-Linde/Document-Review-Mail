@@ -5,7 +5,7 @@ import win32com.client as win32
 # FILE PATHS
 # ============================================================
 
-DOCUMENT_FILE = r"C:\Users\a8ti61\Linde Group\SAP Server and Technology Platform - Documents\8 - Repository and Best Practices\Inventory Basis Documents\\Document_Catalogue_2026_V1.0.xlsx"
+DOCUMENT_FILE = r"Document_Catalogue_2026_V1.0.xlsx"
 
 MEMBERS_FILE = r"TEAM_AVAIL.xlsx"
 
@@ -296,8 +296,18 @@ if breached_df.empty:
 
     print("\nNo breached reviews found.")
 
+    upcoming_days_diff = (
+        doc_df["Review Date"]
+        - today
+    ).dt.days
+
     upcoming_df = doc_df[
         doc_df["Review Date"].notna()
+        &
+        (
+            upcoming_days_diff >= 0
+    upcoming_df = doc_df[
+        pending_mask
         &
         (
             days_diff > 4
