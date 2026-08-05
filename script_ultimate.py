@@ -296,6 +296,129 @@ if breached_df.empty:
 
     print("\nNo breached reviews found.")
 
+    upcoming_df = doc_df[
+        pending_mask
+        &
+        (
+            days_diff > 4
+        )
+    ].copy()
+
+    upcoming_df = (
+        upcoming_df
+        .sort_values(
+            by="Review Date",
+            ascending=True
+        )
+        .head(10)
+        .copy()
+    )
+
+    upcoming_df["Review Alert"] = upcoming_df[
+        "Review Date"
+    ].apply(
+        lambda review_date: (
+            f"BREACHING IN {(review_date.normalize() - today).days} DAYS"
+            if pd.notna(review_date)
+            else ""
+        )
+    )
+
+    upcoming_df["Alert Color"] = "#D9EAD3"
+
+    upcoming_html_table = """
+<table border='1'
+       cellpadding='6'
+       cellspacing='0'
+       style='border-collapse: collapse;
+              font-family: Arial;
+              font-size: 10pt;
+              width: 100%;'>
+
+    <tr style='background-color:#1F4E78;
+               color:white;
+               font-weight:bold;
+               text-align:center;'>
+
+        <th>Document Name</th>
+        <th>Location</th>
+        <th>Responsible</th>
+        <th>Review Cycle</th>
+        <th>Remarks</th>
+        <th>Review Alert</th>
+        <th>Review Date</th>
+        <th>Next Planned Review Date</th>
+
+    </tr>
+"""
+
+    for _, row in upcoming_df.iterrows():
+
+        review_date = ""
+        next_review_date = ""
+
+        if pd.notna(row["Review Date"]):
+
+            review_date = (
+                row["Review Date"]
+                .strftime("%d-%m-%Y")
+            )
+
+        if pd.notna(
+            row["Next Planned Review Date"]
+        ):
+
+            next_review_date = (
+                row["Next Planned Review Date"]
+                .strftime("%d-%m-%Y")
+            )
+
+        location = str(
+            row[
+                "Location of the Document with Link"
+            ]
+        )
+
+        upcoming_html_table += f"""
+    <tr>
+
+        <td>{row['Document Name']}</td>
+
+        <td align='center'>
+            <a href="{location}">
+                Open Document
+            </a>
+        </td>
+
+        <td>{row['Responsible']}</td>
+
+        <td align='center'>
+            {row['Review Cycle (days)']}
+        </td>
+
+        <td>{row['Remarks']}</td>
+
+        <td style='background-color:{row['Alert Color']};
+                   font-weight:bold;
+                   text-align:center;'>
+
+            {row['Review Alert']}
+
+        </td>
+
+        <td align='center'>
+            {review_date}
+        </td>
+
+        <td align='center'>
+            {next_review_date}
+        </td>
+
+    </tr>
+    """
+
+    upcoming_html_table += "</table>"
+
     try:
 
         print("\nInitializing Outlook...")
@@ -313,7 +436,7 @@ if breached_df.empty:
         )
         mail.Subject = "Document Review Alert - No Pending Reviews"
 
-        mail.HTMLBody = """
+        mail.HTMLBody = f"""
         <html>
         <body style='font-family: Arial; font-size:10pt;'>
 
@@ -326,6 +449,14 @@ if breached_df.empty:
         <p>
         All monitored documents are currently within their defined review cycles.
         </p>
+
+        <p>
+        Below are the next document(s) scheduled for review.
+        </p>
+
+        <br>
+
+        {upcoming_html_table}
 
         <br>
 
