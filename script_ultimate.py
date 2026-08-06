@@ -289,200 +289,75 @@ print(
 print("\nTotal Rows:", len(breached_df))
 
 # ============================================================
-# STOP IF EMPTY
+# NO BREACHED REVIEWS
 # ============================================================
 
 if breached_df.empty:
 
     print("\nNo breached reviews found.")
 
+    # ========================================================
+    # FIND NEXT UPCOMING PENDING DOCUMENTS
+    # ========================================================
+
     upcoming_df = doc_df[
+        pending_mask &
         doc_df["Review Date"].notna()
-        &
-        (
-            days_diff > 4
-        )
     ].copy()
 
-    upcoming_df = (
-        upcoming_df
-        .sort_values(
-            by="Review Date",
-            ascending=True
-        )
-        .head(10)
-        .copy()
+    # Only future review dates
+    upcoming_df = upcoming_df[
+        upcoming_df["Review Date"] > today
+    ].copy()
+
+    # Sort by nearest review date
+    upcoming_df = upcoming_df.sort_values(
+        by="Review Date",
+        ascending=True
     )
 
-    upcoming_df["Review Alert"] = upcoming_df[
-        "Review Date"
-    ].apply(
-        lambda review_date: (
-            f"BREACHING IN {(review_date.normalize() - today).days} DAYS"
-            if pd.notna(review_date)
-            else ""
+    # Show top 10
+    upcoming_df = upcoming_df.head(10)
+
+    # ========================================================
+    # CREATE REVIEW ALERTS
+    # ========================================================
+
+    if not upcoming_df.empty:
+
+        upcoming_df["Review Alert"] = upcoming_df["Review Date"].apply(
+            lambda d: f"BREACHING IN {(d.normalize() - today).days} DAY(S)"
         )
-    )
 
-    upcoming_df["Alert Color"] = "#D9EAD3"
+        upcoming_df["Alert Color"] = "#D9EAD3"
 
-    upcoming_html_table = """
-<table border='1'
-       cellpadding='6'
-       cellspacing='0'
-       style='border-collapse: collapse;
-              font-family: Arial;
-              font-size: 10pt;
-              width: 100%;'>
+    # ========================================================
+    # DEBUG OUTPUT
+    # ========================================================
 
-    <tr style='background-color:#1F4E78;
-               color:white;
-               font-weight:bold;
-               text-align:center;'>
+    print("\n==============================")
+    print("UPCOMING DOCUMENTS")
+    print("==============================")
 
-        <th>Document Name</th>
-        <th>Location</th>
-        <th>Responsible</th>
-        <th>Review Cycle</th>
-        <th>Remarks</th>
-        <th>Review Alert</th>
-        <th>Review Date</th>
-        <th>Next Planned Review Date</th>
+    if upcoming_df.empty:
 
-    </tr>
-"""
+        print("No upcoming pending document reviews found.")
+        print("All pending document review dates are already in the past.")
 
-    for _, row in upcoming_df.iterrows():
+    else:
 
-        review_date = ""
-        next_review_date = ""
-
-        if pd.notna(row["Review Date"]):
-
-            review_date = (
-                row["Review Date"]
-                .strftime("%d-%m-%Y")
-            )
-
-        if pd.notna(
-            row["Next Planned Review Date"]
-        ):
-
-            next_review_date = (
-                row["Next Planned Review Date"]
-                .strftime("%d-%m-%Y")
-            )
-
-        location = str(
-            row[
-                "Location of the Document with Link"
+        print(
+            upcoming_df[
+                [
+                    "Document Name",
+                    "Responsible",
+                    "Review Date",
+                    "Review Alert"
+                ]
             ]
         )
 
-        upcoming_html_table += f"""
-    <tr>
-
-        <td>{row['Document Name']}</td>
-
-        <td align='center'>
-            <a href="{location}">
-                Open Document
-            </a>
-        </td>
-
-        <td>{row['Responsible']}</td>
-
-        <td align='center'>
-            {row['Review Cycle (days)']}
-        </td>
-
-        <td>{row['Remarks']}</td>
-
-        <td style='background-color:{row['Alert Color']};
-                   font-weight:bold;
-                   text-align:center;'>
-
-            {row['Review Alert']}
-
-        </td>
-
-        <td align='center'>
-            {review_date}
-        </td>
-
-        <td align='center'>
-            {next_review_date}
-        </td>
-
-    </tr>
-    """
-
-    upcoming_html_table += "</table>"
-
-    try:
-
-        print("\nInitializing Outlook...")
-
-        outlook = win32.Dispatch("Outlook.Application")
-
-        mail = outlook.CreateItem(0)
-
-        mail.To = "si_basis@linde.com"
-        mail.CC = (
-            "sandeep.kumar.jha@linde.com;"
-            "thomas.gerulat@linde.com;"
-            "Steffen.Schnell-Kretschmer@linde.com;"
-            "sumit.das@linde.com"
-        )
-        mail.Subject = "Document Review Alert - No Pending Reviews"
-
-        mail.HTMLBody = f"""
-        <html>
-        <body style='font-family: Arial; font-size:10pt;'>
-
-        <p>Dear Team,</p>
-
-        <p>
-        Good news! No breached reviews were found during today's document review check.
-        </p>
-
-        <p>
-        All monitored documents are currently within their defined review cycles.
-        </p>
-
-        <p>
-        Below are the next document(s) scheduled for review.
-        </p>
-
-        <br>
-
-        {upcoming_html_table}
-
-        <br>
-
-        <p>
-        Regards,<br>
-        SAP Basis Automation
-        </p>
-
-        </body>
-        </html>
-        """
-
-        # Display Draft
-        mail.Display()
-
-        # Save Draft
-        mail.Save()
-
-        print("No breached review notification draft created.")
-
-    except Exception as e:
-
-        print("Failed to create notification email.")
-        print(e)
-
-    exit()
+    print("\nTotal Upcoming Documents:", len(upcoming_df))
 
 # ============================================================
 # GET MANAGER EMAILS
