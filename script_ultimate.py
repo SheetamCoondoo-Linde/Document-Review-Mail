@@ -5,7 +5,7 @@ import win32com.client as win32
 # FILE PATHS
 # ============================================================
 
-DOCUMENT_FILE = r"C:\Users\a8ti61\Linde Group\SAP Server and Technology Platform - Documents\8 - Repository and Best Practices\Inventory Basis Documents\\Document_Catalogue_2026_V1.0.xlsx"
+DOCUMENT_FILE = r"Document_Catalogue_2026_V1.0.xlsx"
 
 MEMBERS_FILE = r"TEAM_AVAIL.xlsx"
 
@@ -296,23 +296,18 @@ if breached_df.empty:
 
     print("\nNo breached reviews found.")
 
-    next_planned_days_diff = (
-        doc_df["Next Planned Review Date"]
-        - today
-    ).dt.days
-
     upcoming_df = doc_df[
-        doc_df["Next Planned Review Date"].notna()
+        doc_df["Review Date"].notna()
         &
         (
-            next_planned_days_diff >= 0
+            days_diff > 4
         )
     ].copy()
 
     upcoming_df = (
         upcoming_df
         .sort_values(
-            by="Next Planned Review Date",
+            by="Review Date",
             ascending=True
         )
         .head(10)
@@ -320,55 +315,16 @@ if breached_df.empty:
     )
 
     upcoming_df["Review Alert"] = upcoming_df[
-        "Next Planned Review Date"
+        "Review Date"
     ].apply(
-        lambda next_planned_review_date: (
-            "REVIEW DUE TODAY"
-            if (
-                pd.notna(next_planned_review_date)
-                and
-                (
-                    next_planned_review_date.normalize()
-                    - today
-                ).days
-                == 0
-            )
-            else (
-                "REVIEW IN 1 DAY"
-                if (
-                    pd.notna(next_planned_review_date)
-                    and
-                    (
-                        next_planned_review_date.normalize()
-                        - today
-                    ).days
-                    == 1
-                )
-                else (
-                    f"REVIEW IN {(next_planned_review_date.normalize() - today).days} DAYS"
-                    if pd.notna(next_planned_review_date)
-                    else ""
-                )
-            )
+        lambda review_date: (
+            f"BREACHING IN {(review_date.normalize() - today).days} DAYS"
+            if pd.notna(review_date)
+            else ""
         )
     )
 
     upcoming_df["Alert Color"] = "#D9EAD3"
-
-    print("\n==============================")
-    print("NEXT DOCUMENTS TO BE REVIEWED")
-    print("==============================")
-
-    print(
-        upcoming_df[[
-            "Document Name",
-            "Responsible",
-            "Status",
-            "Review Date",
-            "Next Planned Review Date",
-            "Review Alert"
-        ]]
-    )
 
     upcoming_html_table = """
 <table border='1'
@@ -389,10 +345,9 @@ if breached_df.empty:
         <th>Responsible</th>
         <th>Review Cycle</th>
         <th>Remarks</th>
-        <th>Status</th>
+        <th>Review Alert</th>
         <th>Review Date</th>
         <th>Next Planned Review Date</th>
-        <th>Review Alert</th>
 
     </tr>
 """
@@ -443,7 +398,13 @@ if breached_df.empty:
 
         <td>{row['Remarks']}</td>
 
-        <td>{row['Status']}</td>
+        <td style='background-color:{row['Alert Color']};
+                   font-weight:bold;
+                   text-align:center;'>
+
+            {row['Review Alert']}
+
+        </td>
 
         <td align='center'>
             {review_date}
@@ -451,14 +412,6 @@ if breached_df.empty:
 
         <td align='center'>
             {next_review_date}
-        </td>
-
-        <td style='background-color:{row['Alert Color']};
-                   font-weight:bold;
-                   text-align:center;'>
-
-            {row['Review Alert']}
-
         </td>
 
     </tr>
