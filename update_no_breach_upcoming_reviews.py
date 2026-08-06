@@ -709,7 +709,7 @@ def initialize_outlook():
 
         sys.exit()
 
-        # ============================================================
+# ============================================================
 # BREACHED DOCUMENT FILTER
 # ============================================================
 
@@ -748,24 +748,18 @@ doc_df["Days Remaining"] = (
 # ------------------------------------------------------------
 
 alerts = doc_df["Review Date"].apply(
-
     lambda x: get_review_alert(
         x,
         mode="breach"
     )
-
 )
 
-doc_df["Review Alert"] = (
-
-    alerts.str[0]
-
+doc_df["Review Alert"] = alerts.apply(
+    lambda x: x[0]
 )
 
-doc_df["Alert Color"] = (
-
-    alerts.str[1]
-
+doc_df["Alert Color"] = alerts.apply(
+    lambda x: x[1]
 )
 
 # ------------------------------------------------------------
@@ -873,13 +867,13 @@ upcoming_df = (
 
     doc_df[
 
-        doc_df["Review Date"].notna()
+        doc_df["Next Planned Review Date"].notna()
 
         &
 
         (
 
-            doc_df["Review Date"]
+            doc_df["Next Planned Review Date"]
 
             >= today
 
@@ -915,7 +909,7 @@ upcoming_df = upcoming_df.head(10)
 # Review Alerts
 # ------------------------------------------------------------
 
-alerts = upcoming_df["Review Date"].apply(
+alerts = upcoming_df["Next Planned Review Date"].apply(
 
     lambda x: get_review_alert(
         x,
@@ -924,16 +918,12 @@ alerts = upcoming_df["Review Date"].apply(
 
 )
 
-upcoming_df["Review Alert"] = (
-
-    alerts.str[0]
-
+upcoming_df["Review Alert"] = alerts.apply(
+    lambda x: x[0]
 )
 
-upcoming_df["Alert Color"] = (
-
-    alerts.str[1]
-
+upcoming_df["Alert Color"] = alerts.apply(
+    lambda x: x[1]
 )
 
 # ============================================================
