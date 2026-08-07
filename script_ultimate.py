@@ -452,24 +452,24 @@ def get_review_alert(review_date, mode="breach"):
     # UPCOMING DOCUMENTS
     # --------------------------------------------------------
 
-    if days == 0:
+    if days <= 14:
 
         return (
-            "REVIEW DUE TODAY",
-            COLOR_ORANGE
+            f"REVIEW IN {days} DAY(S)",
+            COLOR_RED
         )
 
-    elif days == 1:
+    elif days < 31:
 
         return (
-            "REVIEW IN 1 DAY",
+            f"REVIEW IN {days} DAY(S)",
             COLOR_YELLOW
         )
 
     else:
 
         return (
-            f"REVIEW IN {days} DAYS",
+            f"REVIEW IN {days} DAY(S)",
             COLOR_GREEN
         )
 
@@ -871,13 +871,11 @@ upcoming_df = (
 
         &
 
-        (
+        (doc_df["Next Planned Review Date"] >= today)
 
-            doc_df["Next Planned Review Date"]
+        &
 
-            >= today
-
-        )
+        (doc_df["Next Planned Review Date"] <= today + pd.Timedelta(days=31))
 
     ]
 
@@ -891,7 +889,7 @@ upcoming_df = (
 
 upcoming_df.sort_values(
 
-    by="Review Date",
+    by="Next Planned Review Date",
 
     ascending=True,
 
