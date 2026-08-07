@@ -11,7 +11,7 @@ import sys
 # Input Files
 # -------------------------------
 
-DOCUMENT_FILE = r"Document_Catalogue_2026_V1.0.xlsx"
+DOCUMENT_FILE = r"C:\Users\a8ti61\Linde Group\SAP Server and Technology Platform - Documents\8 - Repository and Best Practices\Inventory Basis Documents\Document_Catalogue_2026_V1.0.xlsx"
 MEMBERS_FILE = r"TEAM_AVAIL.xlsx"
 
 # -------------------------------
