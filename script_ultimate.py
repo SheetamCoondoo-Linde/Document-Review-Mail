@@ -30,15 +30,18 @@ NO_BREACH_TO = [
 ]
 
 NO_BREACH_CC = [
+    "si_basis@linde.com",
     "sandeep.kumar.jha@linde.com",
+    "praveen.verma@linde.com",
     "thomas.gerulat@linde.com",
     "Steffen.Schnell-Kretschmer@linde.com",
     "sumit.das@linde.com"
 ]
 
 BREACH_CC = [
-    "sandeep.kumar.jha@linde.com",
     "si_basis@linde.com",
+    "sandeep.kumar.jha@linde.com",
+    "praveen.verma@linde.com",
     "thomas.gerulat@linde.com",
     "Steffen.Schnell-Kretschmer@linde.com",
     "sumit.das@linde.com"
@@ -494,77 +497,119 @@ def format_date(date_value):
 # EXTRACT RESPONSIBLE EMAILS
 # ============================================================
 
-def extract_to_emails(breached_df, members_df):
+def extract_to_emails(df, members_df):
 
-    responsible_people = (
-        breached_df["Responsible"]
-        .dropna()
-        .astype(str)
-        .unique()
-    )
-
-    first_names = set()
-
-    for item in responsible_people:
-
-        item = (
-            item.replace(",", " ")
-            .replace("/", " ")
-            .replace("&", " ")
-        )
-
-        words = item.split()
-
-        if words:
-
-            first_names.add(
-                words[0].lower().strip()
-            )
-
-    print("\nResponsible First Names")
-
-    print(first_names)
+    print("\n==============================")
+    print("EXTRACTING RESPONSIBLE EMAILS")
+    print("==============================")
 
     emails = []
 
-    for first_name in first_names:
+    # ------------------------------------------------------------
+    # Create first-name lookup from TEAM_AVAIL
+    # ------------------------------------------------------------
+
+    members_df = members_df.copy()
+
+    members_df["FirstName_clean"] = (
+        members_df["Name"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.split()
+        .str[0]
+        .str.lower()
+    )
+
+    members_df["Email_Clean"] = (
+        members_df["Linde_E-Mail"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # ------------------------------------------------------------
+    # Process Responsible names
+    # ------------------------------------------------------------
+
+    for responsible in (
+        df["Responsible"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    ):
+
+        if not responsible:
+            continue
+
+        responsible_clean = (
+            responsible
+            .lower()
+            .strip()
+            .split()[0]
+        )
+
+        print(
+            f"\nResponsible : {responsible}"
+        )
+
+        # --------------------------------------------------------
+        # Match Responsible first name
+        # --------------------------------------------------------
 
         match = members_df[
             members_df["FirstName_clean"]
-            == first_name
+            == responsible_clean
         ]
 
-        if not match.empty:
-
-            for _, row in match.iterrows():
-
-                email = row["Linde_E-Mail"]
-
-                if email:
-
-                    emails.append(email)
-
-                    print(
-                        f"Matched : {first_name} -> {email}"
-                    )
-
-        else:
+        if match.empty:
 
             print(
-                f"No email found for : {first_name}"
+                f"NOT FOUND : {responsible}"
             )
 
-    emails = sorted(
-        list(set(emails))
+            continue
+
+        # --------------------------------------------------------
+        # Add matching email(s)
+        # --------------------------------------------------------
+
+        for _, row in match.iterrows():
+
+            email = row["Email_Clean"]
+
+            if email and email.lower() != "nan":
+
+                emails.append(email)
+
+                print(
+                    f"MATCHED : "
+                    f"{row['Name']} -> {email}"
+                )
+
+    # ------------------------------------------------------------
+    # Remove duplicate emails
+    # ------------------------------------------------------------
+
+    emails = list(dict.fromkeys(emails))
+
+    # ------------------------------------------------------------
+    # Final output
+    # ------------------------------------------------------------
+
+    print("\n==============================")
+    print("FINAL TO EMAILS")
+    print("==============================")
+
+    for email in emails:
+        print(email)
+
+    print(
+        f"\nTotal recipients: {len(emails)}"
     )
 
-    print("\nFinal TO Emails")
-
-    print(emails)
-
     return emails
-
-
 # ============================================================
 # HTML TABLE BUILDER
 # ============================================================
@@ -1068,64 +1113,78 @@ def create_no_breach_email():
 
     print("\nPreparing No Pending Review email...")
 
+    # ------------------------------------------------------------
+    # EXTRACT RESPONSIBLE PERSON EMAILS
+    # FROM UPCOMING DOCUMENTS
+    # ------------------------------------------------------------
+
+    to_emails = extract_to_emails(
+        upcoming_df,
+        members_df
+    )
+
+   
+    # ------------------------------------------------------------
+    # BUILD HTML TABLE
+    # ------------------------------------------------------------
+
     html_table = build_html_table(
         upcoming_df
     )
 
+    # ------------------------------------------------------------
+    # EMAIL BODY
+    # ------------------------------------------------------------
+
     body = f"""
-<html>
+    <html>
 
-<body style="font-family:Arial;font-size:10pt;">
+    <body style="font-family:Arial;font-size:10pt;">
 
-<p>Dear Team,</p>
+    <p>Dear Team,</p>
 
-<p>
+    <p>
+    Good news!
+    </p>
 
-Good news!
+    <p>
+    No breached document reviews were found
+    during today's review cycle.
+    </p>
 
-No breached document reviews were found
-during today's review cycle.
+    <p>
+    Below are the next scheduled document
+    reviews.
+    </p>
 
-</p>
+    <br>
 
-<p>
+    {html_table}
 
-Below are the next scheduled document
-reviews.
+    <br>
 
-</p>
+    Regards,
 
-<br>
+    <br>
 
-{html_table}
+    SAP Basis Automation
 
-<br>
+    </body>
 
-Regards,
+    </html>
+    """
 
-<br>
-
-SAP Basis Automation
-
-</body>
-
-</html>
-"""
+    # ------------------------------------------------------------
+    # CREATE OUTLOOK EMAIL
+    # ------------------------------------------------------------
 
     create_outlook_mail(
-
         outlook=outlook,
-
         subject=NO_BREACH_SUBJECT,
-
-        to_emails=NO_BREACH_TO,
-
+        to_emails=to_emails,
         cc_emails=NO_BREACH_CC,
-
         body=body
-
     )
-
 
 # ============================================================
 # MAIN
