@@ -100,6 +100,7 @@ DOCUMENT_COLUMNS = [
 
 STATUS_REVIEW_DONE = "REVIEW DONE"
 STATUS_PENDING = "PENDING"
+STATUS_IN_PROGRESS = "IN PROGRESS"
 
 # ============================================================
 # TODAY
@@ -761,18 +762,23 @@ def initialize_outlook():
 print("\nChecking for breached document reviews...")
 
 # ------------------------------------------------------------
-# Status eligible for breach checking
+# Status eligible for current review breach checking
 # Blank
 # Pending
+# In Progress
 # ------------------------------------------------------------
 
-pending_mask = (
+active_current_review_mask = (
 
     doc_df["Status"].eq("")
 
     |
 
     doc_df["Status"].eq(STATUS_PENDING)
+
+    |
+
+    doc_df["Status"].eq(STATUS_IN_PROGRESS)
 
 )
 
@@ -812,35 +818,39 @@ COLOR_PRIORITY = {
 def get_breach_alert_for_row(row):
     """
     Returns a consolidated breach alert that identifies which date field
-    triggered the alert. If both dates are within the breach window, both
-    conditions are shown and the most urgent colour is selected.
+    triggered the alert. Review Date only triggers when the current review
+    status is active; Next Planned Review Date is monitored for all statuses.
     """
 
     alert_parts = []
     alert_colors = []
 
-    date_checks = [
-        (
-            "REVIEW DATE",
-            row["Review Date"]
-        ),
-        (
-            "NEXT PLANNED REVIEW",
-            row["Next Planned Review Date"]
-        )
-    ]
-
-    for label, date_value in date_checks:
+    if row["Current Review Action Required"]:
 
         alert_text, alert_color = get_review_alert(
-            date_value,
+            row["Review Date"],
             mode="breach"
         )
 
         if alert_text:
 
             alert_parts.append(
-                f"{label} - {alert_text}"
+                f"REVIEW DATE - {alert_text}"
+            )
+
+            alert_colors.append(alert_color)
+
+    if row["Next Planned Review Action Required"]:
+
+        alert_text, alert_color = get_review_alert(
+            row["Next Planned Review Date"],
+            mode="breach"
+        )
+
+        if alert_text:
+
+            alert_parts.append(
+                f"NEXT PLANNED REVIEW - {alert_text}"
             )
 
             alert_colors.append(alert_color)
@@ -860,11 +870,19 @@ def get_breach_alert_for_row(row):
     return "<br>".join(alert_parts), alert_color
 
 # ------------------------------------------------------------
-# Breach Window - Review Date OR Next Planned Review Date
+# Breach Window - Current Review OR Next Planned Review
 # Missing/blank dates are ignored safely by requiring notna().
+#
+# Current Review uses Review Date only for active statuses.
+# Next Planned Review Date is monitored for every status, including
+# REVIEW DONE, because it represents the next scheduled review.
 # ------------------------------------------------------------
 
-review_date_breach_mask = (
+current_review_action_required_mask = (
+
+    active_current_review_mask
+
+    &
 
     doc_df["Review Date"].notna()
 
@@ -877,7 +895,7 @@ review_date_breach_mask = (
 
 )
 
-next_planned_review_breach_mask = (
+next_planned_review_action_required_mask = (
 
     doc_df["Next Planned Review Date"].notna()
 
@@ -890,13 +908,21 @@ next_planned_review_breach_mask = (
 
 )
 
+doc_df["Current Review Action Required"] = (
+    current_review_action_required_mask
+)
+
+doc_df["Next Planned Review Action Required"] = (
+    next_planned_review_action_required_mask
+)
+
 breach_window_mask = (
 
-    review_date_breach_mask
+    current_review_action_required_mask
 
     |
 
-    next_planned_review_breach_mask
+    next_planned_review_action_required_mask
 
 )
 
@@ -907,10 +933,6 @@ breach_window_mask = (
 breached_df = (
 
     doc_df[
-
-        pending_mask
-
-        &
 
         breach_window_mask
 
@@ -951,10 +973,20 @@ else:
 
 if not breached_df.empty:
 
+    breached_df["Current Review Action Days Remaining"] = (
+        breached_df["Review Date Days Remaining"]
+        .where(breached_df["Current Review Action Required"])
+    )
+
+    breached_df["Next Planned Review Action Days Remaining"] = (
+        breached_df["Next Planned Review Days Remaining"]
+        .where(breached_df["Next Planned Review Action Required"])
+    )
+
     breached_df["Earliest Breach Days Remaining"] = breached_df[
         [
-            "Review Date Days Remaining",
-            "Next Planned Review Days Remaining"
+            "Current Review Action Days Remaining",
+            "Next Planned Review Action Days Remaining"
         ]
     ].min(axis=1)
 
@@ -967,7 +999,11 @@ if not breached_df.empty:
     )
 
     breached_df.drop(
-        columns=["Earliest Breach Days Remaining"],
+        columns=[
+            "Current Review Action Days Remaining",
+            "Next Planned Review Action Days Remaining",
+            "Earliest Breach Days Remaining"
+        ],
         inplace=True
     )
 
