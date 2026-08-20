@@ -30,15 +30,18 @@ NO_BREACH_TO = [
 ]
 
 NO_BREACH_CC = [
+    "si_basis@linde.com",
     "sandeep.kumar.jha@linde.com",
+    "praveen.verma@linde.com",
     "thomas.gerulat@linde.com",
     "Steffen.Schnell-Kretschmer@linde.com",
     "sumit.das@linde.com"
 ]
 
 BREACH_CC = [
-    "sandeep.kumar.jha@linde.com",
     "si_basis@linde.com",
+    "sandeep.kumar.jha@linde.com",
+    "praveen.verma@linde.com",
     "thomas.gerulat@linde.com",
     "Steffen.Schnell-Kretschmer@linde.com",
     "sumit.das@linde.com"
@@ -1120,20 +1123,7 @@ def create_no_breach_email():
         members_df
     )
 
-    # ------------------------------------------------------------
-    # FALLBACK
-    # If no responsible person's email could be found,
-    # send the email to SI Basis
-    # ------------------------------------------------------------
-
-    if not to_emails:
-        print(
-            "\nNo responsible email found."
-            " Using fallback recipient."
-        )
-
-        to_emails = NO_BREACH_TO
-
+   
     # ------------------------------------------------------------
     # BUILD HTML TABLE
     # ------------------------------------------------------------
