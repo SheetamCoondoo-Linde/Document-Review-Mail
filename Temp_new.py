@@ -56,7 +56,7 @@ BREACH_SUBJECT = (
 )
 
 NO_BREACH_SUBJECT = (
-    "Document Review Alert - No Pending Reviews"
+    "Document Review Alert - Upcoming Reviews"
 )
 
 # -------------------------------
@@ -1256,71 +1256,20 @@ No document reviews are scheduled within the next 15 days.
 
 def create_consolidated_review_email():
 
-    if not breached_df.empty:
+    print("\nPreparing Upcoming Review email...")
 
-        print("\nPreparing Action Required email...")
+    subject = NO_BREACH_SUBJECT
 
-        subject = BREACH_SUBJECT
+    to_emails = extract_to_emails(
+        upcoming_df,
+        members_df
+    )
 
-        to_emails = extract_to_emails(
-            breached_df,
-            members_df
-        )
+    if not to_emails:
 
-        cc_emails = BREACH_CC
+        to_emails = NO_BREACH_TO
 
-        breach_html = build_html_table(
-            breached_df
-        )
-
-        intro_html = f"""
-<p>Dear Team,</p>
-
-<p>
-The following document reviews require attention.
-</p>
-
-<br>
-
-{breach_html}
-
-<br>
-
-<p>
-The following documents are also scheduled<br>
-for review within the next 31 days.
-</p>
-"""
-
-    else:
-
-        print("\nPreparing No Pending Review email...")
-
-        subject = NO_BREACH_SUBJECT
-
-        to_emails = extract_to_emails(
-            upcoming_df,
-            members_df
-        )
-
-        cc_emails = NO_BREACH_CC
-
-        intro_html = """
-<p>Dear Team,</p>
-
-<p>
-Good news!
-</p>
-
-<p>
-No breached document reviews were found<br>
-during today's review cycle.
-</p>
-
-<p>
-Below are the next scheduled document reviews.
-</p>
-"""
+    cc_emails = NO_BREACH_CC
 
     upcoming_html = build_upcoming_section()
 
@@ -1329,7 +1278,11 @@ Below are the next scheduled document reviews.
 
 <body style="font-family:Arial;font-size:10pt;">
 
-{intro_html}
+<p>Dear Team,</p>
+
+<p>
+Below are the upcoming scheduled document reviews.
+</p>
 
 <br>
 
