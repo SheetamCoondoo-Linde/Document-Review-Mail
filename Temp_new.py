@@ -615,7 +615,7 @@ def extract_to_emails(df, members_df):
 # HTML TABLE BUILDER
 # ============================================================
 
-def build_html_table(df, apply_row_color=False):
+def build_html_table(df, apply_row_color=False, alert_column_heading="Review Alert"):
 
     html = f"""
 <table border="1"
@@ -641,7 +641,7 @@ def build_html_table(df, apply_row_color=False):
 <th>Review Cycle</th>
 <th>Remarks</th>
 <th>Status</th>
-<th>Review Alert</th>
+<th>{alert_column_heading}</th>
 <th>Review Date</th>
 <th>Next Planned Review Date</th>
 
@@ -1120,51 +1120,37 @@ upcoming_df.sort_values(
 )
 
 # ------------------------------------------------------------
-# Review Alerts and row colours based only on Days Left
+# Upcoming review date text and row colours based only on Days Left
 # ------------------------------------------------------------
 
-def get_upcoming_alert_for_days_left(days_left):
+def get_upcoming_color_for_days_left(days_left):
 
     if pd.isna(days_left):
 
-        return "", COLOR_WHITE
+        return COLOR_WHITE
 
     days_left = int(days_left)
 
-    if days_left == 0:
-
-        alert_text = "REVIEW DUE TODAY"
-
-    elif days_left == 1:
-
-        alert_text = "REVIEW IN 1 DAY"
-
-    else:
-
-        alert_text = f"REVIEW IN {days_left} DAYS"
-
     if 0 <= days_left <= 7:
 
-        return alert_text, COLOR_RED
+        return COLOR_RED
 
     if 8 <= days_left <= 15:
 
-        return alert_text, COLOR_YELLOW
+        return COLOR_YELLOW
 
-    return "", COLOR_WHITE
+    return COLOR_WHITE
 
-alerts = upcoming_df["Days Left"].apply(
+upcoming_df["Review Alert"] = upcoming_df["Next Planned Review Date"].apply(
 
-    get_upcoming_alert_for_days_left
+    lambda review_date: f"Upcoming review date: {format_date(review_date)}"
 
 )
 
-upcoming_df["Review Alert"] = alerts.apply(
-    lambda x: x[0]
-)
+upcoming_df["Alert Color"] = upcoming_df["Days Left"].apply(
 
-upcoming_df["Alert Color"] = alerts.apply(
-    lambda x: x[1]
+    get_upcoming_color_for_days_left
+
 )
 
 # ============================================================
@@ -1259,7 +1245,8 @@ No document reviews are scheduled within the next 15 days.
 
     return build_html_table(
         upcoming_df,
-        apply_row_color=True
+        apply_row_color=True,
+        alert_column_heading="Upcoming Review Date"
     )
 
 
