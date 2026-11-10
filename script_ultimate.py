@@ -147,7 +147,7 @@ today = pd.Timestamp.today().normalize()
 
 pd.set_option("display.max_columns", None)
 pd.set_option("display.width", 200)
-pd.set_option("display.max_colwidth", 80)
+pd.set_option("display.max_colwidth", 90)
 
 # ============================================================
 # CONSOLE HEADER
@@ -1452,9 +1452,9 @@ def build_pending_sla_dashboard(pending_df):
 
     report_date = today.strftime("%d %b %Y")
     return f"""
-    <table role="presentation" width="80%" align="center"
+    <table role="presentation" width="90%"
            cellpadding="0" cellspacing="0" border="0"
-           style="width:80%;margin-left:auto;margin-right:auto;
+           style="width:90%;margin-left:0;margin-right:auto;
                   border-collapse:collapse;
                   font-family:Arial,sans-serif;background:{theme['page']};">
       <tr>
@@ -1568,8 +1568,15 @@ def create_consolidated_review_email():
   <p>Please find below the current Pending Document Review SLA Dashboard.
      Only documents with Status = Pending are included.</p>
   {dashboard_html}
-  <br>
-  <p>Regards,<br>SAP Basis Automation</p>
+    <div style="clear:both;display:block;width:100%;
+                height:1px;line-height:1px;font-size:1px;">
+        &nbsp;
+    </div>
+    
+    <p style="clear:both;margin-top:12px;">
+        Regards,<br>
+        SAP Basis Automation
+    </p>
 </body>
 </html>
 """
