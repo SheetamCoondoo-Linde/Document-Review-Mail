@@ -12,7 +12,7 @@ import html
 # Input Files
 # -------------------------------
 
-DOCUMENT_FILE = r"Document_Catalogue_2026_V1.0.xlsx"
+DOCUMENT_FILE = r"Test_status_rule_updated.xlsx"
 MEMBERS_FILE = r"TEAM_AVAIL.xlsx"
 
 # -------------------------------
