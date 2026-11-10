@@ -2,6 +2,7 @@ import pandas as pd
 import win32com.client as win32
 from datetime import datetime
 import sys
+import html
 
 # ============================================================
 # CONFIGURATION
@@ -77,6 +78,38 @@ COLOR_GREEN = "#D9EAD3"
 COLOR_WHITE = "#FFFFFF"
 
 HEADER_COLOR = "#1F4E78"
+
+
+# ============================================================
+# PENDING SLA DASHBOARD - LIGHT THEME CONFIGURATION
+# ============================================================
+
+DASHBOARD_THEME = {
+    "page": "#FFFFFF",
+    "header": "#C8D9F5",
+    "header_text": "#17345C",
+    "section": "#EAF0F8",
+    "section_text": "#253D5B",
+    "text": "#26384D",
+    "muted_text": "#52647B",
+    "border": "#D9E0E8",
+    "track": "#E8EBEF",
+    "kpi_critical_bg": "#F4E8D9",
+    "kpi_critical_text": "#B85A32",
+    "kpi_attention_bg": "#F8EBD9",
+    "kpi_attention_text": "#C17A25",
+    "kpi_total_bg": "#E8EDF5",
+    "kpi_total_text": "#234E85",
+}
+
+# Central colour convention: edit these values to change the bar colours.
+SLA_COLOURS = {
+    "critical": "#D94B45",   # 0-7 days
+    "attention": "#E58B32",  # 8-14 days
+    "upcoming": "#D5B52E",   # 15-31 days
+    "on_track": "#36A36A",   # More than 31 days
+    "due_today": "#D94B45",
+}
 
 # ============================================================
 # COLUMN NAMES
@@ -1220,101 +1253,322 @@ No document reviews are scheduled within the next 31 days.
     )
 
 
+
+# ============================================================
+# PENDING SLA DASHBOARD
+# ============================================================
+
+def get_sla_classification(days_remaining):
+    """Classify a pending document by calendar days remaining."""
+    if days_remaining <= 7:
+        return "critical", "Critical"
+    if days_remaining <= 14:
+        return "attention", "Attention Required"
+    if days_remaining <= 31:
+        return "upcoming", "Upcoming"
+    return "on_track", "On Track"
+
+
+def get_pending_documents(source_df):
+    """
+    Dashboard-only filter: show exactly PENDING source statuses.
+    Status is not recalculated here; the catalogue status is authoritative.
+    """
+    pending = source_df[
+        source_df["Status"].fillna("").astype(str).str.strip().str.upper()
+        .eq(STATUS_PENDING)
+    ].copy()
+
+    pending = pending[pending["Next Planned Review Date"].notna()].copy()
+
+    pending["Days Remaining"] = (
+        pending["Next Planned Review Date"].dt.normalize() - today
+    ).dt.days
+
+    pending["Pending Window (days)"] = (
+        pd.to_numeric(pending["Review Cycle (days)"], errors="coerce") * 0.20
+    )
+
+    def remaining_percentage(row):
+        window = row["Pending Window (days)"]
+        days = row["Days Remaining"]
+        if pd.isna(window) or window <= 0:
+            return 0.0
+        return min(100.0, max(0.0, (days / window) * 100.0))
+
+    pending["SLA Remaining %"] = pending.apply(
+        remaining_percentage, axis=1
+    )
+
+    classified = pending["Days Remaining"].apply(get_sla_classification)
+    pending["SLA Key"] = classified.apply(lambda item: item[0])
+    pending["SLA Classification"] = classified.apply(lambda item: item[1])
+
+    pending.sort_values(
+        by=["Days Remaining", "Next Planned Review Date"],
+        ascending=[True, True],
+        inplace=True
+    )
+    pending.reset_index(drop=True, inplace=True)
+    return pending
+
+
+def build_sla_bar(percentage, colour):
+    """Build an Outlook-compatible horizontal bar using nested HTML tables."""
+    percentage = max(0.0, min(100.0, float(percentage or 0.0)))
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           border="0" style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td bgcolor="{DASHBOARD_THEME['track']}" height="10"
+            style="background:{DASHBOARD_THEME['track']};height:10px;
+                   padding:0;font-size:1px;line-height:1px;">
+          <table role="presentation" width="{percentage:.1f}%"
+                 cellpadding="0" cellspacing="0" border="0"
+                 style="width:{percentage:.1f}%;border-collapse:collapse;">
+            <tr>
+              <td bgcolor="{colour}" height="10"
+                  style="background:{colour};height:10px;
+                         font-size:1px;line-height:1px;">&nbsp;</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    """
+
+
+def build_pending_sla_dashboard(pending_df):
+    """Render the light-theme dashboard containing pending documents only."""
+    theme = DASHBOARD_THEME
+
+    total = len(pending_df)
+    critical = int((pending_df["Days Remaining"] <= 7).sum()) if total else 0
+    attention = int(
+        ((pending_df["Days Remaining"] >= 8) &
+         (pending_df["Days Remaining"] <= 14)).sum()
+    ) if total else 0
+
+    def kpi_card(label, value, background, foreground, note):
+        return f"""
+        <td width="33.33%" valign="top"
+            style="width:33.33%;padding:12px;background:{background};
+                   border-right:2px solid #FFFFFF;">
+          <div style="font-family:Arial,sans-serif;font-size:9pt;
+                      font-weight:bold;color:{theme['text']};">{label}</div>
+          <div style="font-family:Arial,sans-serif;font-size:25pt;
+                      line-height:32pt;font-weight:bold;color:{foreground};">
+            {value}
+          </div>
+          <div style="font-family:Arial,sans-serif;font-size:9pt;
+                      color:{theme['muted_text']};">{note}</div>
+        </td>
+        """
+
+    if pending_df.empty:
+        rows_html = f"""
+        <tr><td colspan="7" align="center"
+            style="padding:20px;color:{theme['muted_text']};
+                   border-bottom:1px solid {theme['border']};">
+            There are currently no pending document reviews.
+        </td></tr>
+        """
+    else:
+        row_parts = []
+        for index, row in pending_df.iterrows():
+            days = int(row["Days Remaining"])
+            if days == 0:
+                days_label = "Due Today"
+            elif days == 1:
+                days_label = "1 day left"
+            elif days < 0:
+                days_label = f"{abs(days)} day(s) overdue"
+            else:
+                days_label = f"{days} days left"
+
+            bar_colour = SLA_COLOURS.get(
+                row["SLA Key"], SLA_COLOURS["on_track"]
+            )
+            document_name = html.escape(str(row["Document Name"]))
+            reviewer = html.escape(str(row["Responsible"] or ""))
+            cycle = row["Review Cycle (days)"]
+            cycle_display = (
+                str(int(cycle))
+                if pd.notna(cycle) and float(cycle).is_integer()
+                else (html.escape(str(cycle)) if pd.notna(cycle) else "")
+            )
+
+            location = str(
+                row["Location of the Document with Link"] or ""
+            ).strip()
+            if location.lower().startswith(("https://", "http://")):
+                safe_url = html.escape(location, quote=True)
+                document_link = (
+                    f'<a href="{safe_url}" style="color:#3269A5;'
+                    f'text-decoration:underline;font-weight:bold;">'
+                    f'{document_name}</a>'
+                )
+            else:
+                document_link = document_name
+
+            actual_date = html.escape(format_date(row["Review Date"]))
+            next_date = html.escape(
+                format_date(row["Next Planned Review Date"])
+            )
+            classification = html.escape(str(row["SLA Classification"]))
+            bar = build_sla_bar(row["SLA Remaining %"], bar_colour)
+
+            row_parts.append(f"""
+            <tr>
+              <td valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['muted_text']};font-size:10pt;">{index + 1}</td>
+              <td valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['text']};font-size:10pt;">{document_link}</td>
+              <td valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['text']};font-size:10pt;">{reviewer}</td>
+              <td align="center" valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['text']};font-size:10pt;">{cycle_display}</td>
+              <td align="center" valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['text']};font-size:9pt;">{actual_date}</td>
+              <td align="center" valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};
+                  color:{theme['text']};font-size:9pt;">{next_date}</td>
+              <td valign="top" style="padding:10px 8px;
+                  border-bottom:1px solid {theme['border']};min-width:150px;">
+                <div style="font-family:Arial,sans-serif;font-size:9pt;
+                            color:{bar_colour};font-weight:bold;margin-bottom:5px;">
+                  {html.escape(days_label)} | {classification}
+                </div>
+                {bar}
+              </td>
+            </tr>
+            """)
+        rows_html = "".join(row_parts)
+
+    report_date = today.strftime("%d %b %Y")
+    return f"""
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           border="0" style="width:100%;border-collapse:collapse;
+           font-family:Arial,sans-serif;background:{theme['page']};">
+      <tr>
+        <td colspan="3" bgcolor="{theme['header']}"
+            style="background:{theme['header']};padding:14px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                 border="0"><tr>
+            <td style="font-size:16pt;font-weight:bold;color:{theme['header_text']};">
+              DOCUMENT REVIEW – PENDING SLA STATUS
+            </td>
+            <td align="right" style="font-size:10pt;font-weight:bold;
+                color:{theme['header_text']};">{report_date}</td>
+          </tr></table>
+        </td>
+      </tr>
+      <tr>
+        {kpi_card("CRITICAL DOCUMENTS", critical, theme["kpi_critical_bg"],
+                  theme["kpi_critical_text"], "0–7 days remaining")}
+        {kpi_card("ATTENTION REQUIRED", attention, theme["kpi_attention_bg"],
+                  theme["kpi_attention_text"], "8–14 days remaining")}
+        {kpi_card("TOTAL PENDING DOCUMENTS", total, theme["kpi_total_bg"],
+                  theme["kpi_total_text"], "Pending documents")}
+      </tr>
+      <tr>
+        <td colspan="3" bgcolor="{theme['section']}"
+            style="background:{theme['section']};padding:10px 12px;
+                   color:{theme['section_text']};font-size:10pt;font-weight:bold;">
+          PENDING DOCUMENTS – SORTED BY SHORTEST SLA FIRST
+        </td>
+      </tr>
+      <tr><td colspan="3" style="padding:0;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+               style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;">
+          <tr bgcolor="#F3F6FA">
+            <th align="left" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">ID</th>
+            <th align="left" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">DOCUMENT NAME</th>
+            <th align="left" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">REVIEWER</th>
+            <th align="center" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">CYCLE</th>
+            <th align="center" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">ACTUAL REVIEW</th>
+            <th align="center" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">NEXT REVIEW</th>
+            <th align="left" style="padding:9px 8px;color:{theme['muted_text']};
+                font-size:9pt;border-bottom:1px solid {theme['border']};">SLA COUNTDOWN</th>
+          </tr>
+          {rows_html}
+        </table>
+      </td></tr>
+      <tr>
+        <td colspan="3" bgcolor="{theme['section']}"
+            style="background:{theme['section']};padding:9px 12px;
+                   color:{theme['muted_text']};font-size:8pt;">
+          Document Review Reporting System | Pending window calculated using
+          20% of Review Cycle.
+        </td>
+      </tr>
+    </table>
+    """
+
+
+def extract_manager_emails(source_members_df):
+    """Use the existing manager designation in TEAM_AVAIL."""
+    manager_rows = source_members_df[
+        source_members_df["Kanban"].fillna("").astype(str).str.strip()
+        .str.upper().eq("MANAGERS")
+    ]
+    emails = manager_rows["Linde_E-Mail"].fillna("").astype(str).str.strip().tolist()
+    emails.extend(NO_BREACH_CC)
+
+    unique = {}
+    for email in emails:
+        if email and email.lower() != "nan":
+            unique.setdefault(email.lower(), email)
+    return list(unique.values())
+
+
+
 # ============================================================
 # CONSOLIDATED EMAIL BODY
 # ============================================================
 
 def create_consolidated_review_email():
 
-    if not breached_df.empty:
+    print("\\nPreparing Pending SLA Dashboard email...")
 
-        print("\nPreparing Action Required email...")
+    # Only the dashboard data is filtered to Pending. Reviewer distribution
+    # is intentionally extracted from the complete document catalogue.
+    pending_df = get_pending_documents(doc_df)
+    print(f"Pending documents in dashboard: {len(pending_df)}")
 
-        subject = BREACH_SUBJECT
+    dashboard_html = build_pending_sla_dashboard(pending_df)
 
-        to_emails = extract_to_emails(
-            breached_df,
-            members_df
-        )
+    # Preserve all reviewers from the full catalogue in To.
+    to_emails = extract_to_emails(doc_df, members_df)
 
-        cc_emails = BREACH_CC
+    # Preserve the current configured CC list and also include all managers
+    # designated in TEAM_AVAIL (Kanban == MANAGERS).
+    cc_emails = extract_manager_emails(members_df)
 
-        breach_html = build_html_table(
-            breached_df
-        )
-
-        intro_html = f"""
-<p>Dear Team,</p>
-
-<p>
-The following document reviews require attention.
-</p>
-
-<br>
-
-{breach_html}
-
-<br>
-
-<p>
-The following documents are also scheduled<br>
-for review within the next 31 days.
-</p>
-"""
-
-    else:
-
-        print("\nPreparing No Pending Review email...")
-
-        subject = NO_BREACH_SUBJECT
-
-        to_emails = extract_to_emails(
-            upcoming_df,
-            members_df
-        )
-
-        cc_emails = NO_BREACH_CC
-
-        intro_html = """
-<p>Dear Team,</p>
-
-<p>
-Good news!
-</p>
-
-<p>
-No breached document reviews were found<br>
-during today's review cycle.
-</p>
-
-<p>
-Below are the next scheduled document reviews.
-</p>
-"""
-
-    upcoming_html = build_upcoming_section()
+    subject = "Document Review - Pending SLA Dashboard"
 
     body = f"""
 <html>
-
-<body style="font-family:Arial;font-size:10pt;">
-
-{intro_html}
-
-<br>
-
-{upcoming_html}
-
-<br>
-
-Regards,
-
-<br>
-
-SAP Basis Automation
-
+<body style="margin:0;padding:12px;background:#FFFFFF;
+             font-family:Arial,sans-serif;font-size:10pt;color:#26384D;">
+  <p>Dear Team,</p>
+  <p>Please find below the current Pending Document Review SLA Dashboard.
+     Only documents with Status = Pending are included.</p>
+  {dashboard_html}
+  <br>
+  <p>Regards,<br>SAP Basis Automation</p>
 </body>
-
 </html>
 """
 
@@ -1325,6 +1579,12 @@ SAP Basis Automation
         cc_emails=cc_emails,
         body=body
     )
+
+    print("\\nPending SLA Dashboard generated successfully.")
+    print("Total Pending Documents:", len(pending_df))
+    print("Total TO Recipients:", len(to_emails))
+    print("Total CC Recipients:", len(cc_emails))
+
 
 # ============================================================
 # MAIN
