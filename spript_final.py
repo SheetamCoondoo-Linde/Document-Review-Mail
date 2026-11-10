@@ -11,7 +11,7 @@ import sys
 # Input Files
 # -------------------------------
 
-DOCUMENT_FILE = r"C:\Users\a8ti61\Linde Group\SAP Server and Technology Platform - Documents\8 - Repository and Best Practices\Inventory Basis Documents\Document_Catalogue_2026_V1.0.xlsx"
+DOCUMENT_FILE = r"Document_Catalogue_2026_V1.0.xlsx"
 MEMBERS_FILE = r"TEAM_AVAIL.xlsx"
 
 # -------------------------------
@@ -100,6 +100,7 @@ DOCUMENT_COLUMNS = [
 
 STATUS_REVIEW_DONE = "REVIEW DONE"
 STATUS_PENDING = "PENDING"
+STATUS_IN_PROGRESS = "IN PROGRESS"
 
 # ============================================================
 # TODAY
@@ -761,12 +762,13 @@ def initialize_outlook():
 print("\nChecking for breached document reviews...")
 
 # ------------------------------------------------------------
-# Status eligible for breach checking
+# Status eligible for current review breach checking
 # Blank
 # Pending
+# In Progress
 # ------------------------------------------------------------
 
-pending_mask = (
+active_current_review_mask = (
 
     doc_df["Status"].eq("")
 
@@ -774,13 +776,17 @@ pending_mask = (
 
     doc_df["Status"].eq(STATUS_PENDING)
 
+    |
+
+    doc_df["Status"].eq(STATUS_IN_PROGRESS)
+
 )
 
 # ------------------------------------------------------------
-# Calculate days remaining
+# Calculate days remaining independently for both review dates
 # ------------------------------------------------------------
 
-doc_df["Days Remaining"] = (
+doc_df["Review Date Days Remaining"] = (
 
     doc_df["Review Date"]
 
@@ -788,34 +794,135 @@ doc_df["Days Remaining"] = (
 
 ).dt.days
 
+doc_df["Next Planned Review Days Remaining"] = (
+
+    doc_df["Next Planned Review Date"]
+
+    - today
+
+).dt.days
+
 # ------------------------------------------------------------
-# Review Alert
+# Breach alert helpers
 # ------------------------------------------------------------
 
-alerts = doc_df["Review Date"].apply(
-    lambda x: get_review_alert(
-        x,
-        mode="breach"
+COLOR_PRIORITY = {
+    COLOR_RED: 1,
+    COLOR_ORANGE: 2,
+    COLOR_YELLOW: 3,
+    COLOR_LIGHT_YELLOW: 4,
+    COLOR_WHITE: 5
+}
+
+
+def get_breach_alert_for_row(row):
+    """
+    Returns a consolidated breach alert that identifies which date field
+    triggered the alert. Review Date only triggers when the current review
+    status is active; Next Planned Review Date is monitored for all statuses.
+    """
+
+    alert_parts = []
+    alert_colors = []
+
+    if row["Current Review Action Required"]:
+
+        alert_text, alert_color = get_review_alert(
+            row["Review Date"],
+            mode="breach"
+        )
+
+        if alert_text:
+
+            alert_parts.append(
+                f"REVIEW DATE - {alert_text}"
+            )
+
+            alert_colors.append(alert_color)
+
+    if row["Next Planned Review Action Required"]:
+
+        alert_text, alert_color = get_review_alert(
+            row["Next Planned Review Date"],
+            mode="breach"
+        )
+
+        if alert_text:
+
+            alert_parts.append(
+                f"NEXT PLANNED REVIEW - {alert_text}"
+            )
+
+            alert_colors.append(alert_color)
+
+    if not alert_parts:
+
+        return "", COLOR_WHITE
+
+    alert_color = min(
+        alert_colors,
+        key=lambda color: COLOR_PRIORITY.get(
+            color,
+            COLOR_PRIORITY[COLOR_WHITE]
+        )
     )
-)
 
-doc_df["Review Alert"] = alerts.apply(
-    lambda x: x[0]
-)
-
-doc_df["Alert Color"] = alerts.apply(
-    lambda x: x[1]
-)
+    return "<br>".join(alert_parts), alert_color
 
 # ------------------------------------------------------------
-# Breach Window
+# Breach Window - Current Review OR Next Planned Review
+# Missing/blank dates are ignored safely by requiring notna().
+#
+# Current Review uses Review Date only for active statuses.
+# Next Planned Review Date is monitored for every status, including
+# REVIEW DONE, because it represents the next scheduled review.
 # ------------------------------------------------------------
+
+current_review_action_required_mask = (
+
+    active_current_review_mask
+
+    &
+
+    doc_df["Review Date"].notna()
+
+    &
+
+    (
+        doc_df["Review Date Days Remaining"]
+        <= BREACH_WINDOW_DAYS
+    )
+
+)
+
+next_planned_review_action_required_mask = (
+
+    doc_df["Next Planned Review Date"].notna()
+
+    &
+
+    (
+        doc_df["Next Planned Review Days Remaining"]
+        <= BREACH_WINDOW_DAYS
+    )
+
+)
+
+doc_df["Current Review Action Required"] = (
+    current_review_action_required_mask
+)
+
+doc_df["Next Planned Review Action Required"] = (
+    next_planned_review_action_required_mask
+)
 
 breach_window_mask = (
 
-    doc_df["Days Remaining"]
+    current_review_action_required_mask
 
-    <= BREACH_WINDOW_DAYS
+    |
+
+    next_planned_review_action_required_mask
 
 )
 
@@ -827,10 +934,6 @@ breached_df = (
 
     doc_df[
 
-        pending_mask
-
-        &
-
         breach_window_mask
 
     ]
@@ -840,16 +943,69 @@ breached_df = (
 )
 
 # ------------------------------------------------------------
-# Sort
+# Review Alert for breached documents
 # ------------------------------------------------------------
 
-breached_df.sort_values(
+if not breached_df.empty:
 
-    by="Review Date",
+    alerts = breached_df.apply(
+        get_breach_alert_for_row,
+        axis=1
+    )
 
-    inplace=True
+    breached_df["Review Alert"] = alerts.apply(
+        lambda x: x[0]
+    )
 
-)
+    breached_df["Alert Color"] = alerts.apply(
+        lambda x: x[1]
+    )
+
+else:
+
+    breached_df["Review Alert"] = ""
+
+    breached_df["Alert Color"] = COLOR_WHITE
+
+# ------------------------------------------------------------
+# Sort by the most urgent triggering date
+# ------------------------------------------------------------
+
+if not breached_df.empty:
+
+    breached_df["Current Review Action Days Remaining"] = (
+        breached_df["Review Date Days Remaining"]
+        .where(breached_df["Current Review Action Required"])
+    )
+
+    breached_df["Next Planned Review Action Days Remaining"] = (
+        breached_df["Next Planned Review Days Remaining"]
+        .where(breached_df["Next Planned Review Action Required"])
+    )
+
+    breached_df["Earliest Breach Days Remaining"] = breached_df[
+        [
+            "Current Review Action Days Remaining",
+            "Next Planned Review Action Days Remaining"
+        ]
+    ].min(axis=1)
+
+    breached_df.sort_values(
+
+        by="Earliest Breach Days Remaining",
+
+        inplace=True
+
+    )
+
+    breached_df.drop(
+        columns=[
+            "Current Review Action Days Remaining",
+            "Next Planned Review Action Days Remaining",
+            "Earliest Breach Days Remaining"
+        ],
+        inplace=True
+    )
 
 breached_df.reset_index(
 
@@ -864,7 +1020,7 @@ breached_df.reset_index(
 # ============================================================
 
 print("\n==============================")
-print("FINAL REVIEW ALERT DATA")
+print("BREACH CHECK")
 print("==============================")
 
 if breached_df.empty:
@@ -880,11 +1036,11 @@ else:
 
                 "Document Name",
 
-                "Responsible",
-
                 "Status",
 
                 "Review Date",
+
+                "Next Planned Review Date",
 
                 "Review Alert"
 
@@ -974,7 +1130,7 @@ upcoming_df["Alert Color"] = alerts.apply(
 # ============================================================
 
 print("\n==============================")
-print("NEXT DOCUMENTS TO BE REVIEWED")
+print("UPCOMING DOCUMENTS")
 print("==============================")
 
 if upcoming_df.empty:
@@ -999,6 +1155,8 @@ else:
                 "Status",
 
                 "Review Date",
+
+                "Next Planned Review Date",
 
                 "Review Alert"
 
@@ -1044,39 +1202,108 @@ def create_outlook_mail(
     print("\nDraft created successfully.")
 
 # ============================================================
-# BREACHED EMAIL BODY
+# EMAIL SECTION HELPERS
 # ============================================================
 
-def create_breached_email():
+def build_upcoming_section():
 
-    print("\nPreparing Action Required email...")
+    if upcoming_df.empty:
 
-    to_emails = extract_to_emails(
-        breached_df,
-        members_df
+        return """
+<p>
+No document reviews are scheduled within the next 31 days.
+</p>
+"""
+
+    return build_html_table(
+        upcoming_df
     )
 
-    html_table = build_html_table(
-        breached_df
-    )
+
+# ============================================================
+# CONSOLIDATED EMAIL BODY
+# ============================================================
+
+def create_consolidated_review_email():
+
+    if not breached_df.empty:
+
+        print("\nPreparing Action Required email...")
+
+        subject = BREACH_SUBJECT
+
+        to_emails = extract_to_emails(
+            breached_df,
+            members_df
+        )
+
+        cc_emails = BREACH_CC
+
+        breach_html = build_html_table(
+            breached_df
+        )
+
+        intro_html = f"""
+<p>Dear Team,</p>
+
+<p>
+The following document reviews require attention.
+</p>
+
+<br>
+
+{breach_html}
+
+<br>
+
+<p>
+The following documents are also scheduled<br>
+for review within the next 31 days.
+</p>
+"""
+
+    else:
+
+        print("\nPreparing No Pending Review email...")
+
+        subject = NO_BREACH_SUBJECT
+
+        to_emails = extract_to_emails(
+            upcoming_df,
+            members_df
+        )
+
+        cc_emails = NO_BREACH_CC
+
+        intro_html = """
+<p>Dear Team,</p>
+
+<p>
+Good news!
+</p>
+
+<p>
+No breached document reviews were found<br>
+during today's review cycle.
+</p>
+
+<p>
+Below are the next scheduled document reviews.
+</p>
+"""
+
+    upcoming_html = build_upcoming_section()
 
     body = f"""
 <html>
 
 <body style="font-family:Arial;font-size:10pt;">
 
-<p>Dear Team,</p>
-
-<p>
-
-Kindly take the required action for the
-following document reviews.
-
-</p>
+{intro_html}
 
 <br>
 
-{html_table}
+{upcoming_html}
 
 <br>
 
@@ -1092,97 +1319,10 @@ SAP Basis Automation
 """
 
     create_outlook_mail(
-
         outlook=outlook,
-
-        subject=BREACH_SUBJECT,
-
+        subject=subject,
         to_emails=to_emails,
-
-        cc_emails=BREACH_CC,
-
-        body=body
-
-    )
-
-# ============================================================
-# NO BREACHED EMAIL BODY
-# ============================================================
-
-def create_no_breach_email():
-
-    print("\nPreparing No Pending Review email...")
-
-    # ------------------------------------------------------------
-    # EXTRACT RESPONSIBLE PERSON EMAILS
-    # FROM UPCOMING DOCUMENTS
-    # ------------------------------------------------------------
-
-    to_emails = extract_to_emails(
-        upcoming_df,
-        members_df
-    )
-
-   
-    # ------------------------------------------------------------
-    # BUILD HTML TABLE
-    # ------------------------------------------------------------
-
-    html_table = build_html_table(
-        upcoming_df
-    )
-
-    # ------------------------------------------------------------
-    # EMAIL BODY
-    # ------------------------------------------------------------
-
-    body = f"""
-    <html>
-
-    <body style="font-family:Arial;font-size:10pt;">
-
-    <p>Dear Team,</p>
-
-    <p>
-    Good news!
-    </p>
-
-    <p>
-    No breached document reviews were found
-    during today's review cycle.
-    </p>
-
-    <p>
-    Below are the next scheduled document
-    reviews.
-    </p>
-
-    <br>
-
-    {html_table}
-
-    <br>
-
-    Regards,
-
-    <br>
-
-    SAP Basis Automation
-
-    </body>
-
-    </html>
-    """
-
-    # ------------------------------------------------------------
-    # CREATE OUTLOOK EMAIL
-    # ------------------------------------------------------------
-
-    create_outlook_mail(
-        outlook=outlook,
-        subject=NO_BREACH_SUBJECT,
-        to_emails=to_emails,
-        cc_emails=NO_BREACH_CC,
+        cc_emails=cc_emails,
         body=body
     )
 
@@ -1192,21 +1332,7 @@ def create_no_breach_email():
 
 outlook = initialize_outlook()
 
-# ------------------------------------------------------------
-# Action Required
-# ------------------------------------------------------------
-
-if not breached_df.empty:
-
-    create_breached_email()
-
-# ------------------------------------------------------------
-# No Pending Reviews
-# ------------------------------------------------------------
-
-else:
-
-    create_no_breach_email()
+create_consolidated_review_email()
 
 print("\n===================================")
 print("PROCESS COMPLETED")
