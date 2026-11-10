@@ -1540,7 +1540,7 @@ def extract_manager_emails(source_members_df):
 
 def create_consolidated_review_email():
 
-    print("\\nPreparing Pending SLA Dashboard email...")
+    print("\nPreparing Pending SLA Dashboard email...")
 
     # Only the dashboard data is filtered to Pending. Reviewer distribution
     # is intentionally extracted from the complete document catalogue.
@@ -1580,7 +1580,7 @@ def create_consolidated_review_email():
         body=body
     )
 
-    print("\\nPending SLA Dashboard generated successfully.")
+    print("\nPending SLA Dashboard generated successfully.")
     print("Total Pending Documents:", len(pending_df))
     print("Total TO Recipients:", len(to_emails))
     print("Total CC Recipients:", len(cc_emails))
