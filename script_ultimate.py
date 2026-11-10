@@ -1452,9 +1452,11 @@ def build_pending_sla_dashboard(pending_df):
 
     report_date = today.strftime("%d %b %Y")
     return f"""
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-           border="0" style="width:100%;border-collapse:collapse;
-           font-family:Arial,sans-serif;background:{theme['page']};">
+    <table role="presentation" width="80%" align="center"
+           cellpadding="0" cellspacing="0" border="0"
+           style="width:80%;margin-left:auto;margin-right:auto;
+                  border-collapse:collapse;
+                  font-family:Arial,sans-serif;background:{theme['page']};">
       <tr>
         <td colspan="3" bgcolor="{theme['header']}"
             style="background:{theme['header']};padding:14px 16px;">
